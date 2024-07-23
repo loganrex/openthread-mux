@@ -1,0 +1,4 @@
+rsource "entropy/Kconfig"
+rsource "ieee802154/Kconfig"
+rsource "serial/Kconfig"
+

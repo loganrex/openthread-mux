@@ -1,0 +1,6 @@
+description: QEMU fake RNG
+
+compatible: "etc,fake-rng"
+
+include: base.yaml
+

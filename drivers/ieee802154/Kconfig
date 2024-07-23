@@ -1,0 +1,18 @@
+# IEEE 802.15.4 driver configuration options
+
+# Copyright (c) 2015 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+#
+# IEEE 802.15.4 options
+#
+menuconfig IEEE802154_ETC
+	bool "IEEE 802.15.4 drivers"
+	depends on NETWORKING
+	default y if NET_L2_PHY_IEEE802154
+
+if IEEE802154_ETC
+
+rsource "Kconfig.etc_uart_pipe"
+
+endif # IEEE802154_ETC

@@ -1,0 +1,4 @@
+
+add_subdirectory_ifdef(CONFIG_ETC_ENTROPY_GENERATOR entropy)
+add_subdirectory_ifdef(CONFIG_SERIAL serial)
+add_subdirectory_ifdef(CONFIG_IEEE802154 ieee802154)

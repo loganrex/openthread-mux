@@ -1,0 +1,7 @@
+
+
+if CONFIG_ENTROPY_GENERATOR
+
+rsource "Kconfig.qemu"
+
+endif

@@ -1,0 +1,6 @@
+
+menuconfig FAKE_ENTROPY_QEMU
+	bool "qemu entropy driver"
+	default y
+	depends on DT_HAS_ZEPHYR_QEMU_RNG_ENABLED
+	select ENTROPY_HAS_DRIVER

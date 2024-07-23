@@ -1,0 +1,6 @@
+
+description: UART PIPE fake radio device (used in QEMU)
+
+compatible: "etc,ieee802154-uart-pipe"
+
+include: base.yaml

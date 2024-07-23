@@ -1,0 +1,52 @@
+
+/ {
+	chosen {
+        zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+        zephyr,entropy = &rng;
+		zephyr,ieee802154 = &ieee802154;
+		zephyr,uart-pipe = &uart1;
+    };
+
+	uart0: uart {
+		status = "okay";
+		compatible = "zephyr,native-tty-uart";
+		current-speed = <115200>;
+		serial-port = "/dev/ttyS10";
+	};
+
+	uart1: uart_1 {
+		status = "okay";
+		compatible = "zephyr,native-tty-uart";
+		current-speed = <115200>;
+		serial-port = "/dev/ttyS11";
+	};
+
+	uart2: uart_2 {
+		status = "okay";
+		compatible = "zephyr,native-tty-uart";
+		current-speed = <115200>;
+		serial-port = "/dev/ttyS12";
+	};
+
+
+	uart3: uart_3 {
+		status = "okay";
+		compatible = "zephyr,native-tty-uart";
+		current-speed = <115200>;
+		serial-port = "/dev/ttyS13";
+	};
+
+
+
+	ieee802154: ieee802154 {
+		compatible = "zephyr,ieee802154-uart-pipe";
+	};
+
+
+};
+
+
+
+
+

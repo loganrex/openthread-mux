@@ -1,0 +1,1 @@
+west build -p -b native_sim -t initlevels app -DEXTRA_ZEPHYR_MODULES=`pwd`

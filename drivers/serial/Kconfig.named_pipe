@@ -1,0 +1,13 @@
+# Copyright (c) 2023 Marko Sagadin
+# SPDX-License-Identifier: Apache-2.0
+
+
+config ETC_UART_NAMED_PIPE_0
+	bool "UART driver for interacting with named pipes"
+	default y
+	depends on DT_HAS_ETC_UART_NAMED_PIPE_0_ENABLED
+	select SERIAL_HAS_DRIVER
+	select SERIAL_SUPPORT_INTERRUPT
+	select UART_INTERRUPT_DRIVEN
+
+

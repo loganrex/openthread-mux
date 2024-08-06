@@ -1,0 +1,21 @@
+description: Native TCP UART
+
+include: uart-controller.yaml
+
+compatible: "etc,native-tcp-uart-2"
+bus: uart
+
+properties:
+  tcp-host:
+    type: string
+    description: |
+      Host to connect to via TCP
+  tcp-port:
+    type: int
+    description: |
+      TCP port
+  is-server:
+    type: boolean 
+    description: |
+      TCP server
+

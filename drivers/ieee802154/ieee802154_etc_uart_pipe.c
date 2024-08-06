@@ -24,6 +24,9 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/random/random.h>
 
+#include <zephyr/shell/shell.h>
+#include <zephyr/shell/shell_uart.h>
+
 #include <zephyr/drivers/uart_pipe.h>
 #include <zephyr/net/ieee802154_radio.h>
 
@@ -135,7 +138,7 @@ static uint8_t *upipe_rx(uint8_t *buf, size_t *off)
 
 	if (upipe->rx_len == upipe->rx_off) {
 		pkt = net_pkt_rx_alloc_with_buffer(upipe->iface, upipe->rx_len,
-						   AF_UNSPEC, 0, K_NO_WAIT);
+						   AF_UNSPEC, 0, K_FOREVER);  //K_NO_WAIT
 		if (!pkt) {
 			LOG_DBG("No pkt available");
 			goto flush;
@@ -145,6 +148,21 @@ static uint8_t *upipe_rx(uint8_t *buf, size_t *off)
 			LOG_DBG("No content read?");
 			goto out;
 		}
+
+		LOG_DBG("net_pkt (%u)", net_pkt_get_len(pkt));
+		LOG_HEXDUMP_DBG(net_pkt_data(pkt), net_pkt_get_len(pkt), "");
+
+		net_pkt_set_ieee802154_lqi(pkt, 50);
+		net_pkt_set_ieee802154_rssi_dbm(pkt, -90);
+		net_pkt_set_ieee802154_ack_fpb(pkt, false);
+
+#if defined(CONFIG_NET_PKT_TIMESTAMP)
+		net_pkt_set_timestamp_ns(pkt, rx_frame->time * NSEC_PER_USEC);
+#endif
+
+#if defined(CONFIG_NET_L2_OPENTHREAD)
+		net_pkt_set_ieee802154_ack_seb(pkt, false);
+#endif
 
 #if defined(CONFIG_IEEE802154_ETC_UPIPE_HW_FILTER)
 		if (received_dest_addr_matched(pkt->buffer->data) == false) {
@@ -267,6 +285,28 @@ static int upipe_set_txpower(const struct device *dev, int16_t dbm)
 	return 0;
 }
 
+
+//crc = 0
+//for i in range(0, len(data)):
+//	c = self.orb(data[i])
+//	q = (crc ^ c) & 15  # Do low-order 4 bits
+//	crc = (crc // 16) ^ (q * 4225)
+//	q = (crc ^ (c // 16)) & 15  # And high 4 bits
+//	crc = (crc // 16) ^ (q * 4225)
+//return struct.pack('<H', crc)  # return as bytes in little endian order
+
+
+static uint16_t gen_crc(uint8_t b, uint16_t crc)
+{
+	uint16_t q = (crc ^ b) & 0x0F;  //# Do low-order 4 bits
+    crc = (crc >> 4) ^ (q * 0x1081);
+    q = (crc ^ (b >> 4)) & 0x0F;  //# And high 4 bits
+    crc = (crc >> 4 ) ^ (q * 0x1081);
+	return crc;
+}
+
+
+
 static int upipe_tx(const struct device *dev,
 		    enum ieee802154_tx_mode mode,
 		    struct net_pkt *pkt,
@@ -291,12 +331,22 @@ static int upipe_tx(const struct device *dev,
 	data = UART_PIPE_RADIO_15_4_FRAME_TYPE;
 	uart_pipe_send(&data, 1);
 
-	data = len;
+	data = len+2;
 	uart_pipe_send(&data, 1);
 
+	uint16_t crc =0;
+
 	for (i = 0U; i < len; i++) {
-		uart_pipe_send(pkt_buf+i, 1);
+		data = pkt_buf[i];
+		crc=gen_crc(data,crc);
+		uart_pipe_send(&data, 1);
 	}
+
+	data = (crc>>0) & 0xFF;
+	uart_pipe_send(&data, 1);
+
+	data = (crc>>8) & 0xFF;
+	uart_pipe_send(&data, 1);
 
 	return 0;
 }
@@ -379,6 +429,40 @@ static int upipe_init(const struct device *dev)
 	return 0;
 }
 
+static int get_env(const char *env_var, int default_value) 
+{
+    char *env_value = getenv(env_var);
+    if (env_value != NULL) {
+		int v= atoi(env_value);
+        return v;
+    } else {
+        return default_value;
+    }
+}
+
+#define STRINGIFYX(x) #x
+#define TOSTRING(x) STRINGIFYX(x)
+
+static int if_random(void)
+{
+	char *env_value = getenv("CONFIG_IEEE802154_ETC_UPIPE_RANDOM_MAC");
+	if (env_value == NULL) {
+#if defined(CONFIG_IEEE802154_ETC_UPIPE_RANDOM_MAC)	
+        return 1;
+#else
+        return 0;
+#endif
+	}
+	else if ((env_value[0]=='y')||(env_value[0]=='Y'))
+	{
+		return 1;
+    } 
+	else 
+	{
+        return 0;
+    }
+}
+
 static inline uint8_t *get_mac(const struct device *dev)
 {
 	struct upipe_context *upipe = dev->data;
@@ -388,14 +472,18 @@ static inline uint8_t *get_mac(const struct device *dev)
 	upipe->mac_addr[2] = 0x20;
 	upipe->mac_addr[3] = 0x30;
 
-#if defined(CONFIG_IEEE802154_ETC_UPIPE_RANDOM_MAC)
-	sys_rand_get(&upipe->mac_addr[4], 4U);
-#else
-	upipe->mac_addr[4] = CONFIG_IEEE802154_ETC_UPIPE_MAC4;
-	upipe->mac_addr[5] = CONFIG_IEEE802154_ETC_UPIPE_MAC5;
-	upipe->mac_addr[6] = CONFIG_IEEE802154_ETC_UPIPE_MAC6;
-	upipe->mac_addr[7] = CONFIG_IEEE802154_ETC_UPIPE_MAC7;
-#endif
+	if (if_random())
+	{
+		printk("get_mac random\n");
+        sys_csrand_get(&upipe->mac_addr[4], 4U);
+	}
+	else
+	{
+		upipe->mac_addr[4] = get_env("CONFIG_IEEE802154_ETC_UPIPE_MAC4", CONFIG_IEEE802154_ETC_UPIPE_MAC4);
+		upipe->mac_addr[5] = get_env("CONFIG_IEEE802154_ETC_UPIPE_MAC5", CONFIG_IEEE802154_ETC_UPIPE_MAC5);
+		upipe->mac_addr[6] = get_env("CONFIG_IEEE802154_ETC_UPIPE_MAC6", CONFIG_IEEE802154_ETC_UPIPE_MAC6);
+		upipe->mac_addr[7] = get_env("CONFIG_IEEE802154_ETC_UPIPE_MAC7", CONFIG_IEEE802154_ETC_UPIPE_MAC7);
+	}
 
 	return upipe->mac_addr;
 }
@@ -407,10 +495,16 @@ static void upipe_iface_init(struct net_if *iface)
 	struct upipe_context *upipe = dev->data;
 	uint8_t *mac = get_mac(dev);
 
+	printk("upipe_iface_init  %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5],mac[6],mac[7]);
 	net_if_set_link_addr(iface, mac, 8, NET_LINK_IEEE802154);
 
 	upipe_dev = dev;
 	upipe->iface = iface;
+
+    char *env_value = getenv("SHELL_NAME");
+	if (env_value != NULL) {
+	//	shell_prompt_change(shell_backend_uart_get_ptr(),env_value);
+	}
 
 	ieee802154_init(iface);
 }

@@ -1,0 +1,19 @@
+description: Native TCP UART
+
+include: uart-controller.yaml
+
+compatible: "etc,uart-named-pipe-0"
+bus: uart
+
+properties:
+  rx-pipe:
+    type: string
+    description: |
+      Path to rx-pipe
+  tx-pipe:
+    type: string
+    description: |
+      Path to tx-pipe
+
+
+

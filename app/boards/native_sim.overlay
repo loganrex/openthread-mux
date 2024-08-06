@@ -6,39 +6,35 @@
         zephyr,entropy = &rng;
 		zephyr,ieee802154 = &ieee802154;
 		zephyr,uart-pipe = &uart1;
+		test,uart = &uart2;
     };
 
 	uart0: uart {
 		status = "okay";
-		compatible = "etc,native-tty-uart";
-		current-speed = <3000000>;
-		serial-port = "/dev/ttyS10";
+		compatible = "etc,native-tcp-uart-0";
+		tcp-host = "127.0.0.1";
+		tcp-port = <6000>;
 	};
 
 	uart1: uart_1 {
 		status = "okay";
-		compatible = "etc,native-tty-uart";
-		current-speed = <230400>;
-		serial-port = "/dev/ttyS11";
+		compatible = "etc,native-tcp-uart-1";
+		tcp-host = "127.0.0.1";
+		tcp-port = <9001>;
 	};
 
 	uart2: uart_2 {
 		status = "okay";
-		compatible = "etc,native-tty-uart";
-		current-speed = <230400>;
-		serial-port = "/dev/ttyS12";
+		compatible = "etc,native-tcp-uart-2";
+		tcp-host = "127.0.0.1";
+		tcp-port = <9002>;
 	};
 
-	uart3: uart_3 {
-		status = "okay";
-		compatible = "etc,native-tty-uart";
-		current-speed = <230400>;
-		serial-port = "/dev/ttyS13";
-	};
-
-	ieee802154: ieee802154 {
-		status = "okay";
-		compatible = "etc,ieee802154-uart-pipe";
+    ieee802154: ieee802154 {
+	 	status = "okay";
+		//status = "disabled";
+	 	compatible = "etc,ieee802154-uart-pipe";
+	 	//compatible = "nordic,nrf5x-ieee802154";
 	};
 
 };

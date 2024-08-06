@@ -1,0 +1,33 @@
+# Copyright (c) 2023 Marko Sagadin
+# SPDX-License-Identifier: Apache-2.0
+config ETC_UART_NATIVE_TCP
+	bool "UART driver for interacting with host serial ports"
+	default y
+	depends on DT_HAS_ETC_NATIVE_TCP_UART_ENABLED
+	select SERIAL_HAS_DRIVER
+	select SERIAL_SUPPORT_INTERRUPT
+	select UART_INTERRUPT_DRIVEN
+
+config ETC_UART_NATIVE_TCP_0
+	bool "UART driver for interacting with host serial ports"
+	default y
+	depends on DT_HAS_ETC_NATIVE_TCP_UART_0_ENABLED
+	select SERIAL_HAS_DRIVER
+	select SERIAL_SUPPORT_INTERRUPT
+	select UART_INTERRUPT_DRIVEN
+
+config ETC_UART_NATIVE_TCP_1
+	bool "UART driver for interacting with host serial ports"
+	default y
+	depends on DT_HAS_ETC_NATIVE_TCP_UART_1_ENABLED
+	select SERIAL_HAS_DRIVER
+	select SERIAL_SUPPORT_INTERRUPT
+	select UART_INTERRUPT_DRIVEN
+
+config ETC_UART_NATIVE_TCP_2
+	bool "UART driver for interacting with host serial ports"
+	default y
+	depends on DT_HAS_ETC_NATIVE_TCP_UART_2_ENABLED
+	select SERIAL_HAS_DRIVER
+	select SERIAL_SUPPORT_INTERRUPT
+	select UART_INTERRUPT_DRIVEN

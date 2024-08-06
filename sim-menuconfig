@@ -1,0 +1,1 @@
+west build -b native_sim_64 --build-dir "$( pwd )/build"  -t menuconfig app -DEXTRA_ZEPHYR_MODULES=`pwd`

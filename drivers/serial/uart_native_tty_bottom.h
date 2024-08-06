@@ -86,6 +86,8 @@ int native_tty_open_tty_bottom(const char *pathname);
  */
 int native_tty_configure_bottom(int fd, struct native_tty_bottom_cfg *cfg);
 
+
+
 #ifdef __cplusplus
 }
 #endif

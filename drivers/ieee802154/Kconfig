@@ -14,5 +14,6 @@ menuconfig IEEE802154_ETC
 if IEEE802154_ETC
 
 rsource "Kconfig.etc_uart_pipe"
+rsource "Kconfig.nrf5x"
 
 endif # IEEE802154_ETC

@@ -152,5 +152,7 @@ comment "Serial Drivers"
 
 
 rsource "Kconfig.native_tty"
+rsource "Kconfig.native_tcp"
+rsource "Kconfig.named_pipe"
 
 endif # SERIAL

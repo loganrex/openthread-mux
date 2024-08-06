@@ -1,0 +1,6 @@
+
+description: Nordic nRF IEEE 802.15.4 node simulator
+
+compatible: "nordic,nrfx-ieee802154"
+
+include: base.yaml

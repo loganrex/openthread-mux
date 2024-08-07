@@ -14,8 +14,4 @@ properties:
     type: int
     description: |
       TCP port
-  is-server:
-    type: boolean 
-    description: |
-      TCP server
 

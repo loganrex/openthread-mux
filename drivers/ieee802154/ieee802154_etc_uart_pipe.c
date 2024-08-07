@@ -14,6 +14,7 @@
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include <errno.h>
+#include <sys/time.h>
 
 #include <zephyr/kernel.h>
 #include <zephyr/arch/cpu.h>
@@ -50,6 +51,12 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #define SHORT_ADDRESS_SIZE    2    /* Size of Short Mac Address */
 #define EXTENDED_ADDRESS_SIZE 8    /* Size of Extended Mac Address */
 
+#define MS_PER_S 1000
+#define NS_PER_US 1000
+#define US_PER_MS 1000
+#define US_PER_S 1000000
+
+
 /* Broadcast Short Address */
 #define BROADCAST_ADDRESS    ((uint8_t [SHORT_ADDRESS_SIZE]) {0xff, 0xff})
 
@@ -59,6 +66,23 @@ static uint8_t dev_ext_addr[EXTENDED_ADDRESS_SIZE]; /* Device Extended Address *
 
 /** Singleton device used in uart pipe callback */
 static const struct device *upipe_dev;
+
+static uint64_t platformGetNowUs(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec  * US_PER_S + (uint64_t)tv.tv_usec ;
+}
+
+//static uint64_t platformGetNowMs(void)
+//{
+//	return (uint64_t)((platformGetNowUs()) / US_PER_MS);
+//}
+
+static uint64_t platformGetNowNs(void)
+{
+	return (uint64_t)((platformGetNowUs()) *NS_PER_US);
+}
 
 #if defined(CONFIG_IEEE802154_ETC_UPIPE_HW_FILTER)
 
@@ -114,6 +138,8 @@ static uint8_t *upipe_rx(uint8_t *buf, size_t *off)
 {
 	struct net_pkt *pkt = NULL;
 	struct upipe_context *upipe;
+	uint8_t pkt_len;
+	uint8_t *psdu;
 
 	if (!upipe_dev) {
 		goto done;
@@ -122,6 +148,7 @@ static uint8_t *upipe_rx(uint8_t *buf, size_t *off)
 	upipe = upipe_dev->data;
 	if (!upipe->rx && *buf == UART_PIPE_RADIO_15_4_FRAME_TYPE) {
 		upipe->rx = true;
+		upipe->rx_len = 0;
 		goto done;
 	}
 
@@ -137,14 +164,16 @@ static uint8_t *upipe_rx(uint8_t *buf, size_t *off)
 	upipe->rx_buf[upipe->rx_off++] = *buf;
 
 	if (upipe->rx_len == upipe->rx_off) {
-		pkt = net_pkt_rx_alloc_with_buffer(upipe->iface, upipe->rx_len,
+		psdu=upipe->rx_buf;
+		pkt_len = psdu[0] -  IEEE802154_FCS_LENGTH;
+		pkt = net_pkt_rx_alloc_with_buffer(upipe->iface, pkt_len,
 						   AF_UNSPEC, 0, K_FOREVER);  //K_NO_WAIT
 		if (!pkt) {
 			LOG_DBG("No pkt available");
 			goto flush;
 		}
 
-		if (net_pkt_write(pkt, upipe->rx_buf, upipe->rx_len)) {
+		if (net_pkt_write(pkt, psdu + 1, pkt_len)) {
 			LOG_DBG("No content read?");
 			goto out;
 		}
@@ -157,7 +186,7 @@ static uint8_t *upipe_rx(uint8_t *buf, size_t *off)
 		net_pkt_set_ieee802154_ack_fpb(pkt, false);
 
 #if defined(CONFIG_NET_PKT_TIMESTAMP)
-		net_pkt_set_timestamp_ns(pkt, rx_frame->time * NSEC_PER_USEC);
+		net_pkt_set_timestamp_ns(pkt, (net_time_t)(platformGetNowNs()));
 #endif
 
 #if defined(CONFIG_NET_L2_OPENTHREAD)
@@ -305,7 +334,7 @@ static uint16_t gen_crc(uint8_t b, uint16_t crc)
 	return crc;
 }
 
-
+static uint8_t tx_buff[1024];
 
 static int upipe_tx(const struct device *dev,
 		    enum ieee802154_tx_mode mode,
@@ -328,25 +357,39 @@ static int upipe_tx(const struct device *dev,
 		return -EIO;
 	}
 
-	data = UART_PIPE_RADIO_15_4_FRAME_TYPE;
-	uart_pipe_send(&data, 1);
+	LOG_DBG("pkt_buf (%u)", len);
+	LOG_HEXDUMP_DBG(pkt_buf, len, "");
 
-	data = len+2;
-	uart_pipe_send(&data, 1);
+	int pos=0;
+
+	tx_buff[pos++]=UART_PIPE_RADIO_15_4_FRAME_TYPE;
+
+	//data = UART_PIPE_RADIO_15_4_FRAME_TYPE;
+	//uart_pipe_send(&data, 1);
+
+    tx_buff[pos++]=len+2;
+	//data = len+2;
+	//uart_pipe_send(&data, 1);
 
 	uint16_t crc =0;
 
 	for (i = 0U; i < len; i++) {
 		data = pkt_buf[i];
 		crc=gen_crc(data,crc);
-		uart_pipe_send(&data, 1);
+		tx_buff[pos++]=data;
 	}
 
+	//uart_pipe_send(pkt_buf, len);
+
 	data = (crc>>0) & 0xFF;
-	uart_pipe_send(&data, 1);
+	tx_buff[pos++]=data;
+	//uart_pipe_send(&data, 1);
 
 	data = (crc>>8) & 0xFF;
-	uart_pipe_send(&data, 1);
+	tx_buff[pos++]=data;
+	//uart_pipe_send(&data, 1);
+
+	uart_pipe_send(tx_buff, pos);
 
 	return 0;
 }

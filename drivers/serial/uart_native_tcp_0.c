@@ -21,8 +21,8 @@
 #include <unistd.h>
 #include <time.h>
 
-#include <pthread.h>
-#include <limits.h>
+//#include <pthread.h>
+//#include <limits.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -54,10 +54,9 @@ struct native_tcp_data
     int listen_fd;
     char *tcp_host;
     int tcp_port;
-    bool is_server;
     char *cmd_tcp_host;
     int cmd_tcp_port;
-    bool cmd_is_server;
+
     /* Emulated tx irq is enabled. */
     bool tx_irq_enabled;
     /* Emulated rx irq is enabled. */
@@ -79,10 +78,9 @@ struct native_tcp_config
 };
 
 
-//static struct k_thread rx_thread;
-//static K_KERNEL_STACK_DEFINE(rx_stack, CONFIG_ARCH_POSIX_RECOMMENDED_STACK_SIZE);
-//static struct k_thread tx_thread;
-//static K_KERNEL_STACK_DEFINE(tx_stack, CONFIG_ARCH_POSIX_RECOMMENDED_STACK_SIZE);
+static struct k_thread rx_thread;
+static K_KERNEL_STACK_DEFINE(rx_stack, CONFIG_ARCH_POSIX_RECOMMENDED_STACK_SIZE);
+
 static struct k_thread irq_thread;
 static K_KERNEL_STACK_DEFINE(irq_stack, CONFIG_ARCH_POSIX_RECOMMENDED_STACK_SIZE);
 
@@ -288,16 +286,11 @@ static void native_tcp_uart_irq_thread(void *arg1, void *arg2, void *arg3)
     struct device *dev = (struct device *)arg1;
     struct native_tcp_data *data = dev->data;
     volatile int isRunning = 1;
-    
-    //int rc=0;
-    //uint8_t buf[128];
-    //size_t bytes_read=0;
 
     while (isRunning)
     {
         if (data->fd > 0)
         {
-#if 1
             while(native_tcp_uart_irq_is_pending(dev))
             {
                 native_tcp_uart_irq_handler(dev);
@@ -312,28 +305,6 @@ static void native_tcp_uart_irq_thread(void *arg1, void *arg2, void *arg3)
                 k_sleep(K_MSEC(10));
                 k_sem_take(&data->rxtx_sem, K_MSEC(100));
             }
-#else
-            if (data->rx_irq_enabled)
-            {
-                if (!k_pipe_read_avail(&RXQ))
-                {
-                    k_sem_take(&rxtx_sem, K_MSEC(10));
-                }
-                native_tcp_uart_irq_handler(dev);
-            }
-            if (data->tx_irq_enabled)
-            {
-                native_tcp_uart_irq_handler(dev);
-            }
-            if (data->tx_irq_enabled == false && data->rx_irq_enabled == false)
-            {
-                k_sleep(K_MSEC(10));
-            }
-            if (k_pipe_read_avail(&RXQ))
-            {
-                k_sem_give(&rxtx_sem);
-            }
-#endif
         }
         else
         {
@@ -342,51 +313,18 @@ static void native_tcp_uart_irq_thread(void *arg1, void *arg2, void *arg3)
     }
 }
 
-static void * native_tcp_uart_rx_thread(void *arg1)
+static void native_tcp_uart_rx_thread(void *arg1, void *arg2, void *arg3)
 {
+    ARG_UNUSED(arg2);
+    ARG_UNUSED(arg3);
     struct device *dev = (struct device *)arg1;
     struct native_tcp_data *data = dev->data;
     volatile int isRunning = 1;
 
-    int listener = -1;
-
-    uint8_t buffer[128];
-    struct sockaddr_in serveraddr;
-
-    if (data->is_server)
-    {
-        if (data->fd > 0)
-        {
-            close(data->fd);
-        }
-        data->fd = -1;
-        int yes = 1;
-        if ((listener = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0)) < 0)
-        {
-            listener = -1;
-        }
-        if (setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, (char *)&yes, sizeof(int)) == SOCKET_ERROR)
-        {
-            listener = -1;
-        }
-        serveraddr.sin_family = AF_INET;
-        serveraddr.sin_addr.s_addr = inet_addr(data->tcp_host);
-        serveraddr.sin_port = htons(data->tcp_port);
-        memset(&(serveraddr.sin_zero), '\0', 8);
-
-        if (bind(listener, (struct sockaddr *)&serveraddr, sizeof(serveraddr)) < 0)
-        {
-            perror("Server-bind() error!");
-            listener = -1;
-        }
-        setblocking(listener, false);
-        if (listen(listener, 10) == -1)
-        {
-            listener = -1;
-        }
-    }
+    uint8_t buffer[256];
 
     fd_set read_fds;
+    fd_set error_fds;
     fd_set master;
     int fdMax = -1;
     FD_ZERO(&read_fds);
@@ -394,7 +332,7 @@ static void * native_tcp_uart_rx_thread(void *arg1)
 
     while (isRunning)
     {
-        if ((data->fd > 0) || (listener > 0))
+        if (data->fd > 0)
         {
             FD_ZERO(&master);
 
@@ -407,41 +345,39 @@ static void * native_tcp_uart_rx_thread(void *arg1)
                 FD_SET(data->fd, &master);
             }
 
-            if (listener > 0)
-            {
-                if (listener > fdMax)
-                {
-                    fdMax = listener;
-                }
-                FD_SET(listener, &master);
-            }
-
             read_fds = master;
+            error_fds = master;
 
-            int result = select(fdMax + 1, &read_fds, NULL, NULL,NULL);
-            if (result == -1)
+            struct timeval tv;
+            tv.tv_sec=0;
+            tv.tv_usec=0;
+
+            int result = select(fdMax + 1, &read_fds, NULL, &error_fds, &tv);
+            if (result == 0)
             {
-                printf("select error: %d\n", errno);
+                k_sleep(K_MSEC(10));
+            }
+            else if (result == -1)
+            {
+                if (data->fd >= 0)
+                {
+                    close(data->fd);    
+                }
+                data->fd = -1;
+                WARN("select error: %d\n", errno);
                 continue;
             }
-            if (result > 0)
+            else if (result > 0)
             {
-                if (FD_ISSET(listener, &read_fds))
+                if (FD_ISSET(data->fd, &error_fds))
                 {
-                    struct sockaddr_in clientaddr;
-                    socklen_t addrlen = sizeof(clientaddr);
-                    int fdNew = -1;
-                    if ((fdNew = accept(listener, (struct sockaddr *)&clientaddr, (socklen_t *)&addrlen)) > -1)
+                    if (data->fd >= 0)
                     {
-                        if (data->fd > 0)
-                        {
-                            close(data->fd);
-                        }
-                        data->fd = fdNew;
-                        setblocking(data->fd, false);
+                        close(data->fd);    
                     }
+                    data->fd = -1;
                 }
-                if (FD_ISSET(data->fd, &read_fds))
+                else if (FD_ISSET(data->fd, &read_fds))
                 {
                     int size = 0;
                     int flags = 0;
@@ -469,61 +405,17 @@ static void * native_tcp_uart_rx_thread(void *arg1)
                     }
                 }
             }
-            else
-            {
-            }
         }
         else
         {
-            if (!data->is_server)
+            data->fd = native_tcp_open_tcp_helper(data->tcp_host, data->tcp_port);
+            if (data->fd > 0)
             {
-                data->fd = native_tcp_open_tcp_helper(data->tcp_host, data->tcp_port);
-                if (data->fd > 0)
-                {
-                    posix_print_trace("reconnected to the host:%s port:%d\n", data->tcp_host, data->tcp_port);
-                }
+                WARN("reconnected to the host:%s port:%d\n", data->tcp_host, data->tcp_port);
             }
         }
     }
-
-    return NULL;
 }
-
-#if 0
-
-static void native_tcp_uart_tx_thread(void *arg1, void *arg2, void *arg3)
-{
-    ARG_UNUSED(arg2);
-    ARG_UNUSED(arg3);
-    struct device *dev = (struct device *)arg1;
-    struct native_tcp_data *data = dev->data;
-    ARG_UNUSED(data);
-    volatile int isRunning = 1;
-
-    uint8_t buffer[128];
-    size_t bytes_read;
-
-    while (isRunning)
-    {
-        if (data->fd > 0)
-        {
-            int rc = k_pipe_get(&txq, buffer, 128, &bytes_read, 1, K_MSEC(10));
-            if ((rc == 0) && (bytes_read > 0))
-            {
-                int flags = 0;
-                send(data->fd, buffer, bytes_read, flags);
-            }
-        }
-        else
-        {
-            k_sleep(K_MSEC(100));
-        }
-    }
-}
-
-#endif
-
-
 
 static void native_tcp_uart_irq_callback_set(const struct device *dev,
                                              uart_irq_callback_user_data_t cb,
@@ -533,58 +425,6 @@ static void native_tcp_uart_irq_callback_set(const struct device *dev,
 
     data->callback = cb;
     data->cb_data = cb_data;
-}
-
-#define STACK_SIZE (2048)
-#define PTHREAD_STACK_MIN 16384
-//static K_KERNEL_STACK_DEFINE(rx_stack_, STACK_SIZE);
-
-static int native_tcp_pthreads_init(const struct device *dev)
-{
-    int res;
-
-#ifdef __ZEPHYR__
-    pthread_attr_t attr;
-    pthread_attr_t *attrp = &attr;
-#else
-    pthread_attr_t *attrp = NULL;
-#endif
-
-#ifdef __ZEPHYR__
-    /* Zephyr requires a non-NULL attribute for pthread_create */
-    res = pthread_attr_init(attrp);
-    if (res != 0)
-    {
-        errno = res;
-        perror("pthread_attr_init");
-        return -res;
-    }
-
-    res = pthread_attr_setstacksize(attrp, PTHREAD_STACK_MIN + 0x1000);
-    if (res != 0)
-    {
-        errno = res;
-        perror("pthread_attr_setstack");
-        return -res;
-    }
-#endif
-    pthread_t cThread;
-    res = pthread_create(&cThread, attrp, native_tcp_uart_rx_thread, (void *)dev);
-    if (res != 0)
-    {
-        errno = res;
-        perror("pthread_create");
-        return -res;
-    }
-
-    struct sched_param sch;
-    int policy; 
-    pthread_getschedparam(cThread, &policy, &sch);
-    sch.sched_priority = 20;
-    if (pthread_setschedparam(cThread, SCHED_FIFO, &sch)) {
-        
-    }
-    return 0;
 }
 
 static void native_tcp_thread_init(const struct device *dev)
@@ -597,16 +437,8 @@ static void native_tcp_thread_init(const struct device *dev)
                           K_HIGHEST_THREAD_PRIO, 0, K_NO_WAIT);
     k_thread_name_set(tid, DEVICE_DT_NAME(DT_DRV_INST(0)) "-tcp_0_irq");
     posix_print_trace(DEVICE_DT_NAME(DT_DRV_INST(0)) "-tcp_0_irq" " up \n");
-#if 0
-    tid = k_thread_create(&tx_thread, tx_stack, K_KERNEL_STACK_SIZEOF(tx_stack),
-                          native_tcp_uart_tx_thread,
-                          (void *)dev, NULL, NULL,
-                          K_LOWEST_APPLICATION_THREAD_PRIO, 0, K_NO_WAIT);
-    k_thread_name_set(tid, DEVICE_DT_NAME(DT_DRV_INST(0)) "-tcp_0_tx");
 
-    posix_print_trace(DEVICE_DT_NAME(DT_DRV_INST(0)) "-tcp_0_tx" " up \n");
-#endif
-#if 0
+#if 1
     tid = k_thread_create(&rx_thread, rx_stack, K_KERNEL_STACK_SIZEOF(rx_stack),
                           native_tcp_uart_rx_thread,
                           (void *)dev, NULL, NULL,
@@ -615,6 +447,7 @@ static void native_tcp_thread_init(const struct device *dev)
     posix_print_trace(DEVICE_DT_NAME(DT_DRV_INST(0)) "-tcp_0_rx" " up \n");
 #endif
 }
+
 
 static int native_tcp_serial_init(const struct device *dev)
 {
@@ -643,29 +476,16 @@ static int native_tcp_serial_init(const struct device *dev)
         data->tcp_port = data->cmd_tcp_port;
     }
 
-    if (data->cmd_is_server)
-    {
-        data->is_server = data->cmd_is_server;
-    }
-
     if (!data->tcp_port)
     {
         ERROR("%s: tcp_port was not set.\n", dev->name);
     }
 
-    if (data->is_server)
-    {
-        data->fd = -1;
-    }
-    else
-    {
-        data->fd = native_tcp_open_tcp_helper(data->tcp_host, data->tcp_port);
-        posix_print_trace("%s connected to the host:%s port:%d\n", dev->name, data->tcp_host, data->tcp_port);
-    }
+    data->fd = native_tcp_open_tcp_helper(data->tcp_host, data->tcp_port);
+    posix_print_trace("%s connected to the host:%s port:%d\n", dev->name, data->tcp_host, data->tcp_port);
 
     /* Start irq emulation threads */
     native_tcp_thread_init(dev);
-    native_tcp_pthreads_init(dev);
     return 0;
 }
 
@@ -701,7 +521,6 @@ static const struct native_tcp_config native_tcp_cfg = {
 static struct native_tcp_data native_tcp_data = {
     .tcp_host = DT_INST_PROP_OR(0, tcp_host, NULL),
     .tcp_port = DT_INST_PROP(0, tcp_port),
-    .is_server = DT_INST_PROP(0, is_server),
 };
 
 DEVICE_DT_INST_DEFINE(0, native_tcp_serial_init, NULL, &native_tcp_data,
@@ -727,11 +546,6 @@ static void native_tcp_add_serial_options(void)
             .descript = "Set the tcp port for " DEVICE_DT_NAME(DT_DRV_INST(0)) " device, overriding the "
                                                                                "baudrate of " STRINGIFY(DT_INST_PROP(0, tcp_port)) " set in the devicetree.",
         },
-        {.is_switch = true,
-         .option = DEVICE_DT_NAME(DT_DRV_INST(0)) "_is_server",
-         .type = 'b',
-         .dest = &native_tcp_data.cmd_is_server,
-         .descript = "have the tcp connection act as a server"},
         ARG_TABLE_ENDMARKER};
 
     native_add_command_line_opts(opts);
